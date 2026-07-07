@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence, Union
+from urllib.parse import quote
 
 import requests
+
+
+Temporal = Union[date, datetime, str]
 
 
 class CruxPassError(Exception):
@@ -57,10 +61,13 @@ class CruxPass:
     def list_feeds(self) -> list[dict[str, Any]]:
         return self._request("GET", "/api/feeds/")
 
+    def list_subscribers(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/subscribers/")
+
     def create_subscriber(
         self,
         *,
-        feeds: list[str],
+        feeds: Sequence[str],
         label: str = "",
         email: str = "",
         calendar_name: str = "",
@@ -79,8 +86,8 @@ class CruxPass:
         feed_slug: str,
         external_id: str,
         summary: str,
-        start: date | datetime | str,
-        end: date | datetime | str,
+        start: Temporal,
+        end: Temporal,
         description: str = "",
         location: str = "",
         all_day: bool = False,
@@ -98,7 +105,9 @@ class CruxPass:
             "status": status,
             "busy": busy,
         }
-        return self._request("POST", f"/api/feeds/{feed_slug}/events/", json=payload)
+        return self._request(
+            "POST", f"/api/feeds/{_quote_path_part(feed_slug)}/events/", json=payload
+        )
 
     def cancel_event(
         self,
@@ -106,8 +115,8 @@ class CruxPass:
         feed_slug: str,
         external_id: str,
         summary: str,
-        start: date | datetime | str,
-        end: date | datetime | str,
+        start: Temporal,
+        end: Temporal,
         description: str = "",
         location: str = "",
         all_day: bool = False,
@@ -125,22 +134,168 @@ class CruxPass:
             busy=False,
         )
 
-    def _request(
+    def upsert_recurring_schedule(
+        self,
+        *,
+        feed_slug: str,
+        external_id: str,
+        summary: str,
+        first_start: Temporal,
+        first_end: Temporal,
+        frequency: str,
+        description: str = "",
+        location: str = "",
+        all_day: bool = False,
+        status: str = "confirmed",
+        busy: bool = True,
+        interval: int = 1,
+        count: Optional[int] = None,
+        until: Optional[Temporal] = None,
+        window_months: int = 6,
+    ) -> dict[str, Any]:
+        payload = {
+            "external_id": external_id,
+            "summary": summary,
+            "description": description,
+            "location": location,
+            "first_start": _serialize_temporal(first_start),
+            "first_end": _serialize_temporal(first_end),
+            "all_day": all_day,
+            "status": status,
+            "busy": busy,
+            "frequency": frequency,
+            "interval": interval,
+            "count": count,
+            "until": _serialize_temporal(until) if until is not None else None,
+            "window_months": window_months,
+        }
+        return self._request(
+            "POST",
+            f"/api/feeds/{_quote_path_part(feed_slug)}/recurring-schedules/",
+            json=payload,
+        )
+
+    def upsert_recurring_exception(
+        self,
+        *,
+        feed_slug: str,
+        schedule_external_id: str,
+        occurrence_number: int,
+        action: str,
+        start: Optional[Temporal] = None,
+        end: Optional[Temporal] = None,
+        summary: str = "",
+        description: str = "",
+        location: str = "",
+    ) -> dict[str, Any]:
+        payload = {
+            "occurrence_number": occurrence_number,
+            "action": action,
+            "start": _serialize_temporal(start) if start is not None else None,
+            "end": _serialize_temporal(end) if end is not None else None,
+            "summary": summary,
+            "description": description,
+            "location": location,
+        }
+        return self._request(
+            "POST",
+            (
+                f"/api/feeds/{_quote_path_part(feed_slug)}/recurring-schedules/"
+                f"{_quote_path_part(schedule_external_id)}/exceptions/"
+            ),
+            json=payload,
+        )
+
+    def move_recurring_occurrence(
+        self,
+        *,
+        feed_slug: str,
+        schedule_external_id: str,
+        occurrence_number: int,
+        start: Temporal,
+        end: Temporal,
+        summary: str = "",
+        description: str = "",
+        location: str = "",
+    ) -> dict[str, Any]:
+        return self.upsert_recurring_exception(
+            feed_slug=feed_slug,
+            schedule_external_id=schedule_external_id,
+            occurrence_number=occurrence_number,
+            action="moved",
+            start=start,
+            end=end,
+            summary=summary,
+            description=description,
+            location=location,
+        )
+
+    def skip_recurring_occurrence(
+        self,
+        *,
+        feed_slug: str,
+        schedule_external_id: str,
+        occurrence_number: int,
+    ) -> dict[str, Any]:
+        return self.upsert_recurring_exception(
+            feed_slug=feed_slug,
+            schedule_external_id=schedule_external_id,
+            occurrence_number=occurrence_number,
+            action="skipped",
+        )
+
+    def cancel_recurring_occurrence(
+        self,
+        *,
+        feed_slug: str,
+        schedule_external_id: str,
+        occurrence_number: int,
+    ) -> dict[str, Any]:
+        return self.upsert_recurring_exception(
+            feed_slug=feed_slug,
+            schedule_external_id=schedule_external_id,
+            occurrence_number=occurrence_number,
+            action="cancelled",
+        )
+
+    def get_subscriber_feed_ics(self, token: str) -> str:
+        response = self.session.request(
+            "GET",
+            f"{self.base_url}/f/{_quote_path_part(token)}.ics",
+            headers={"Accept": "text/calendar"},
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            raise APIError(response.status_code, _response_message(response), response)
+        return response.text
+
+    def request(
         self,
         method: str,
         path: str,
         *,
         json: Optional[Mapping[str, Any]] = None,
+        params: Optional[Mapping[str, Any]] = None,
     ) -> Any:
-        response = self.session.request(
-            method,
-            f"{self.base_url}{path}",
-            headers={
+        """Make an authenticated JSON request to a CruxPass API path."""
+        if not path.startswith("/"):
+            path = f"/{path}"
+        request_kwargs: dict[str, Any] = {
+            "headers": {
                 "Authorization": f"Api-Key {self.api_key}",
                 "Accept": "application/json",
             },
-            json=json,
-            timeout=self.timeout,
+            "timeout": self.timeout,
+        }
+        if json is not None:
+            request_kwargs["json"] = json
+        if params is not None:
+            request_kwargs["params"] = params
+
+        response = self.session.request(
+            method,
+            f"{self.base_url}{path}",
+            **request_kwargs,
         )
         if response.status_code >= 400:
             raise APIError(response.status_code, _response_message(response), response)
@@ -148,8 +303,17 @@ class CruxPass:
             return None
         return response.json()
 
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Optional[Mapping[str, Any]] = None,
+    ) -> Any:
+        return self.request(method, path, json=json)
 
-def _serialize_temporal(value: date | datetime | str) -> str:
+
+def _serialize_temporal(value: Temporal) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, datetime):
@@ -158,6 +322,10 @@ def _serialize_temporal(value: date | datetime | str) -> str:
             return serialized.replace("+00:00", "Z")
         return serialized
     return value.isoformat()
+
+
+def _quote_path_part(value: str) -> str:
+    return quote(value, safe="")
 
 
 def _response_message(response: requests.Response) -> str:
