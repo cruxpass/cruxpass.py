@@ -393,6 +393,7 @@ class ClientTests(TestCase):
             first_start=datetime(2026, 7, 20, 23, 0, tzinfo=UTC),
             first_end=datetime(2026, 7, 21, 0, 30, tzinfo=UTC),
             frequency="weekly",
+            timezone="America/Denver",
             count=3,
         )
 
@@ -406,6 +407,7 @@ class ClientTests(TestCase):
         self.assertEqual(payload["first_start"], "2026-07-20T23:00:00Z")
         self.assertEqual(payload["first_end"], "2026-07-21T00:30:00Z")
         self.assertEqual(payload["frequency"], "weekly")
+        self.assertEqual(payload["timezone"], "America/Denver")
         self.assertEqual(payload["interval"], 1)
         self.assertEqual(payload["count"], 3)
         self.assertIsNone(payload["until"])
