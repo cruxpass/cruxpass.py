@@ -35,6 +35,8 @@ Added:
 - Detail lifecycle helpers: `get_group()`, `update_group()`, `delete_group()`,
   `get_feed()`, `update_feed()`, `delete_feed()`, `get_subscriber()`, and
   `update_subscriber()`.
+- `upsert_recurring_schedule(..., timezone=...)` for IANA timezone-aware
+  recurrence expansion.
 
 Server contract:
 
@@ -44,6 +46,8 @@ Server contract:
 - Groups and feeds have `GET`, `PATCH`, and `DELETE` detail endpoints.
 - Subscribers have `GET` and `PATCH` detail endpoints; token and active state
   remain read-only.
+- Recurring schedule payloads accept optional IANA `timezone`; all-day writes
+  must use UTC-midnight datetimes.
 - `/api/v1/` is an alias for the additive CruxPass v1 REST contract.
 
 Tooling:

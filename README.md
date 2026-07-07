@@ -65,6 +65,10 @@ Detail helpers are available for mutable resources: `get_*`, `update_*`, and
 `update_subscriber()`. Feed and group slugs are immutable server-side; subscriber
 tokens and active state are managed through explicit lifecycle helpers.
 
+Recurring schedules accept an optional IANA `timezone`. Omit it to preserve UTC
+recurrence behavior. All-day event and schedule writes must use UTC-midnight
+datetimes.
+
 ## Async
 
 Every helper is also available on `AsyncCruxPass` with the same signatures:
@@ -114,6 +118,7 @@ client.upsert_recurring_schedule(
     first_start="2026-07-20T23:00:00Z",
     first_end="2026-07-21T00:00:00Z",
     frequency="weekly",
+    timezone="America/Denver",
     count=12,
 )
 
