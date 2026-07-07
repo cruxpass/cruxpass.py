@@ -1,39 +1,108 @@
-name: Release
+name: CI and Release
 
 on:
+  pull_request:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.3.0
+        with:
+          enable-cache: true
+
+      - name: Ruff lint
+        run: uv run --locked --group dev ruff check .
+
+      - name: Ruff format check
+        run: uv run --locked --group dev ruff format --check .
+
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.3.0
+        with:
+          enable-cache: true
+
+      - name: ty check
+        run: uv run --locked --group dev ty check src tests
+
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.13", "3.14"]
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.3.0
         with:
+          enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Install package
-        run: python -m pip install -e .
-
       - name: Run tests
-        run: python -m unittest discover -s tests
+        run: uv run --locked python -m unittest discover -s tests -v
+
+  build:
+    name: Build
+    needs: [lint, typecheck, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.3.0
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Check distribution metadata
+        run: uvx twine check dist/*
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
 
   publish:
-    name: Publish
-    needs: test
+    name: Publish to PyPI from GitHub
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/')
     environment: release
     permissions:
@@ -41,27 +110,14 @@ jobs:
       id-token: write
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build distributions
-        run: |
-          python -m pip install --upgrade build
-          python -m build
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+      - name: Download package artifact
+        uses: actions/download-artifact@v8
         with:
           name: dist
-          path: dist/*
+          path: dist
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
 
