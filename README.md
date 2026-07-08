@@ -201,6 +201,10 @@ uv run --group dev ty check src tests
 uv build
 ```
 
+The OpenAPI contract tests use `tests/fixtures/openapi-schema.json` by default.
+Set `CRUXPASS_OPENAPI_SCHEMA=/path/to/openapi-schema.json` to validate against
+a freshly generated server schema artifact.
+
 ## Status
 
 Pre-1.0 package. Releases are coordinated with the matching CruxPass server
