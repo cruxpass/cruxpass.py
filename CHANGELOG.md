@@ -30,6 +30,8 @@ Added:
 - A `User-Agent` header of `cruxpass-python/<version>` on API requests.
 - `request()` now accepts relative paths and returns `None` for empty bodies.
 - `list_events(feed_slug=...)` for `GET /api/feeds/{feed_slug}/events/`.
+- OpenAPI contract tests that verify named helpers against the published server
+  schema.
 - `list_groups()`, `list_feeds()`, `list_events()`, and `list_subscribers()`
   consume paginated REST envelopes and still accept the legacy raw list shape.
 - Detail lifecycle helpers: `get_group()`, `update_group()`, `delete_group()`,
